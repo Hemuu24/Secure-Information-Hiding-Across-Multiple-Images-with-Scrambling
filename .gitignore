@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+
+# Cryptography - never commit keys
+*.key
+
+# Test/generated outputs
+test_images/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
