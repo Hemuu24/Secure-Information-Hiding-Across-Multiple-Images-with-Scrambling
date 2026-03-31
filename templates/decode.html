@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decode | Secure Stego Web</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="bg-glow"></div>
+    <main class="container">
+        <p class="eyebrow"><i class="bi bi-unlock-fill"></i> Decode</p>
+        <h1 class="page-title decrypted-text" data-text="Recover Original Message">
+            Recover Original Message
+        </h1>
+        <p><a class="back-link" href="{{ url_for('index') }}"><i class="bi bi-house-door-fill"></i> Back to Home</a></p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <section class="card">
+            <form method="post" enctype="multipart/form-data">
+                <label for="stego_images"><i class="bi bi-images"></i> Stego Images (same order as encoding)</label>
+                <input id="stego_images" type="file" name="stego_images" multiple required>
+
+                <label for="key_file"><i class="bi bi-key-fill"></i> Encryption Key File (.key)</label>
+                <input id="key_file" type="file" name="key_file" required>
+
+                <button type="submit" class="btn"><i class="bi bi-search-heart-fill"></i> Decode Message</button>
+            </form>
+        </section>
+
+        {% if recovered_message %}
+            <section class="card">
+                <h2>Recovered Message</h2>
+                <textarea rows="8" readonly>{{ recovered_message }}</textarea>
+            </section>
+        {% endif %}
+    </main>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
