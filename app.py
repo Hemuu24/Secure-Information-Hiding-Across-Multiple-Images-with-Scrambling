@@ -23,8 +23,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-only-change-in-production")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
-
-# 🔥 Ensure folders exist (CRITICAL FIX)
+# ✅ Ensure folders exist
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -40,6 +39,7 @@ def _save_uploaded_images(files, destination: Path):
     for idx, file_storage in enumerate(files):
         if not file_storage or not file_storage.filename:
             continue
+
         if not _is_allowed_image(file_storage.filename):
             raise ValueError(f"Unsupported format: {file_storage.filename}")
 
@@ -57,6 +57,7 @@ def index():
     return render_template("index.html")
 
 
+# 🔐 ENCODE
 @app.route("/encode", methods=["GET", "POST"])
 def encode():
     if request.method == "GET":
@@ -115,6 +116,7 @@ def encode():
         return redirect(url_for("encode"))
 
 
+# 🔓 DECODE
 @app.route("/decode", methods=["GET", "POST"])
 def decode():
     if request.method == "GET":
@@ -157,9 +159,29 @@ def decode():
         shutil.rmtree(job_dir, ignore_errors=True)
 
 
+# 📥 DOWNLOAD KEY (FIXED)
+@app.route("/download/key/<job_id>")
+def download_key(job_id):
+    job = ENCODE_JOBS.get(job_id)
+
+    if not job:
+        flash("Session expired", "error")
+        return redirect(url_for("encode"))
+
+    key_path = job["key_path"]
+
+    return send_file(
+        key_path,
+        as_attachment=True,
+        download_name="encryption.key"
+    )
+
+
+# 📦 DOWNLOAD ZIP (IMAGES)
 @app.route("/download/zip/<job_id>")
 def download_zip(job_id):
     job = ENCODE_JOBS.get(job_id)
+
     if not job:
         return redirect(url_for("encode"))
 
