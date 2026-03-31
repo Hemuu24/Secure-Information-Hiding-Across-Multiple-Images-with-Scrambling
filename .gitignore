@@ -14,6 +14,12 @@ env/
 # Test/generated outputs
 test_images/
 
+# Runtime upload/output dirs (never commit user images)
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
 # IDE / OS
 .idea/
 .vscode/
