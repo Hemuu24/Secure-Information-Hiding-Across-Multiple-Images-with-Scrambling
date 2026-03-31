@@ -80,8 +80,16 @@ def encode_into_images(image_paths: list[str], payload: bytes, output_dir: str) 
             _encode_lsb(image, chunks[index])
             output_name = f"{Path(image_path).stem}_stego.png"
             output_path = Path(output_dir) / output_name
-            image.save(output_path)
-            output_paths.append(str(output_path))
+            import os
+
+# Ensure directory exists
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+# Convert image to RGB before saving (IMPORTANT FIX)
+image = image.convert("RGB")
+
+# Save safely
+image.save(output_path, format="PNG")
 
     return output_paths
 
