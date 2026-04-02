@@ -11,17 +11,10 @@ def bytes_per_image(width: int, height: int) -> int:
     return (width * height * 3) // 8
 
 
-def split_payload_for_images(payload: bytes, image_paths: list[str]) -> list[bytes]:
+def split_payload_by_capacities(payload: bytes, capacities: list[int]) -> list[bytes]:
     """
-    Split payload across images.
-    First image starts with 4-byte payload length header.
+    Split (4-byte length prefix + payload) across images using known byte capacities.
     """
-    capacities: list[int] = []
-    for path in image_paths:
-        with Image.open(path) as image:
-            width, height = image.size
-            capacities.append(bytes_per_image(width, height))
-
     total_capacity = sum(capacities)
     needed = 4 + len(payload)
     if needed > total_capacity:
@@ -37,3 +30,16 @@ def split_payload_for_images(payload: bytes, image_paths: list[str]) -> list[byt
         chunks.append(blob[offset : offset + take])
         offset += take
     return chunks
+
+
+def split_payload_for_images(payload: bytes, image_paths: list[str]) -> list[bytes]:
+    """
+    Split payload across images.
+    First image starts with 4-byte payload length header.
+    """
+    capacities: list[int] = []
+    for path in image_paths:
+        with Image.open(path) as image:
+            width, height = image.size
+            capacities.append(bytes_per_image(width, height))
+    return split_payload_by_capacities(payload, capacities)
