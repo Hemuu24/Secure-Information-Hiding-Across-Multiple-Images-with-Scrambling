@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from splitter import bytes_per_image, split_payload_for_images
+from splitter import bytes_per_image, split_payload_by_capacities
 
 
 def _encode_lsb(image: Image.Image, data: bytes) -> Image.Image:
@@ -78,25 +78,27 @@ def _decode_lsb_raw(image: Image.Image, max_bytes: int) -> bytes:
 def encode_into_images(image_paths: list[str], payload: bytes, output_dir: str) -> list[str]:
     os.makedirs(output_dir, exist_ok=True)
 
-    chunks = split_payload_for_images(payload, image_paths)
-    output_paths = []
-
-    for index, image_path in enumerate(image_paths):
+    # Resize before embedding so saved pixels match split capacities and LSBs are not
+    # destroyed by thumbnailing after encode.
+    images: list[Image.Image] = []
+    capacities: list[int] = []
+    for image_path in image_paths:
         with Image.open(image_path) as image:
-            image = image.convert("RGB")
-            image = image.copy()  # 🔥 critical fix
-
-            _encode_lsb(image, chunks[index])
-
-            # Resize (avoid Render timeout)
+            image = image.convert("RGB").copy()
             image.thumbnail((1024, 1024))
+            w, h = image.size
+            capacities.append(bytes_per_image(w, h))
+            images.append(image)
 
-            output_name = f"{Path(image_path).stem}_stego.png"
-            output_path = os.path.join(output_dir, output_name)
+    chunks = split_payload_by_capacities(payload, capacities)
+    output_paths: list[str] = []
 
-            image.save(output_path, format="PNG")
-
-            output_paths.append(output_path)
+    for index, (image, image_path) in enumerate(zip(images, image_paths, strict=True)):
+        _encode_lsb(image, chunks[index])
+        output_name = f"{Path(image_path).stem}_stego.png"
+        output_path = os.path.join(output_dir, output_name)
+        image.save(output_path, format="PNG")
+        output_paths.append(output_path)
 
     return output_paths
 
@@ -105,28 +107,52 @@ def decode_from_images(image_paths: list[str]) -> bytes:
     if not image_paths:
         return b""
 
-    capacities = []
-
+    capacities: list[int] = []
     for image_path in image_paths:
         with Image.open(image_path) as image:
             width, height = image.size
             capacities.append(bytes_per_image(width, height))
 
-    with Image.open(image_paths[0]) as image:
-        image = image.convert("RGB")
-        first_blob = _decode_lsb_raw(image, capacities[0])
-
-    if len(first_blob) < 4:
-        return b""
-
-    total_len = struct.unpack(">I", first_blob[:4])[0]
-    reconstructed = bytearray(first_blob[4:])
-
-    for image_path, cap in zip(image_paths[1:], capacities[1:]):
+    # Encoder only writes ceil(bits/8) bytes per image, not full capacity — reading
+    # unused LSBs adds noise and breaks Fernet. Read exact chunk sizes like split.
+    header = bytearray()
+    for image_path, cap in zip(image_paths, capacities):
+        if len(header) >= 4:
+            break
+        need = 4 - len(header)
+        take = min(cap, need)
         with Image.open(image_path) as image:
             image = image.convert("RGB")
-            reconstructed.extend(_decode_lsb_raw(image, cap))
-        if len(reconstructed) >= total_len:
-            break
+            header.extend(_decode_lsb_raw(image, take))
 
-    return bytes(reconstructed[:total_len])
+    if len(header) < 4:
+        return b""
+
+    total_len = struct.unpack(">I", bytes(header[:4]))[0]
+    blob_len = 4 + total_len
+    total_cap = sum(capacities)
+    if total_len < 0 or blob_len > total_cap:
+        return b""
+
+    lengths: list[int] = []
+    offset = 0
+    for cap in capacities:
+        if offset >= blob_len:
+            lengths.append(0)
+        else:
+            take = min(cap, blob_len - offset)
+            lengths.append(take)
+            offset += take
+
+    blob = bytearray()
+    for image_path, take in zip(image_paths, lengths):
+        if take <= 0:
+            continue
+        with Image.open(image_path) as image:
+            image = image.convert("RGB")
+            blob.extend(_decode_lsb_raw(image, take))
+
+    if len(blob) < blob_len:
+        return b""
+
+    return bytes(blob[4:blob_len])
