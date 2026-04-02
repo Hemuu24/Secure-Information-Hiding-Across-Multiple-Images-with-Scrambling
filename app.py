@@ -20,14 +20,33 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-only-change-in-production")
-app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or "dev-only-change-in-production"
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64MB request limit
 
-# ✅ Ensure folders exist
-UPLOAD_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+ENCODE_JOBS: dict[str, dict[str, object]] = {}
 
-ENCODE_JOBS = {}
+
+def _ensure_dirs() -> None:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+_ensure_dirs()
+
+
+def _cleanup_old_job_dirs(max_jobs: int = 20) -> None:
+    """Avoid unlimited disk usage by removing older job folders."""
+    if len(ENCODE_JOBS) <= max_jobs:
+        return
+    removable_ids = list(ENCODE_JOBS.keys())[: len(ENCODE_JOBS) - max_jobs]
+    for job_id in removable_ids:
+        details = ENCODE_JOBS.pop(job_id, None)
+        if not details:
+            continue
+        for key in ("upload_dir", "output_dir"):
+            folder = details.get(key)
+            if isinstance(folder, Path) and folder.exists():
+                shutil.rmtree(folder, ignore_errors=True)
 
 
 def _is_allowed_image(filename: str) -> bool:
@@ -96,10 +115,12 @@ def encode():
         key_path.write_bytes(key)
 
         ENCODE_JOBS[job_id] = {
+            "upload_dir": job_upload_dir,
             "output_dir": job_output_dir,
             "key_path": key_path,
             "stego_paths": stego_paths,
         }
+        _cleanup_old_job_dirs()
 
         flash("Encoding successful", "success")
 
@@ -125,11 +146,11 @@ def decode():
     images = request.files.getlist("stego_images")
     key_file = request.files.get("key_file")
 
-    if not images:
+    if len([f for f in images if getattr(f, "filename", "")]) == 0:
         flash("Upload stego images", "error")
         return redirect(url_for("decode"))
 
-    if not key_file:
+    if not key_file or not key_file.filename:
         flash("Upload key file", "error")
         return redirect(url_for("decode"))
 
@@ -139,8 +160,14 @@ def decode():
     try:
         image_paths = _save_uploaded_images(images, job_dir)
         key = key_file.read()
+        if not key:
+            raise ValueError("Key file is empty.")
 
         payload = decode_from_images(image_paths)
+        if not payload:
+            raise ValueError(
+                "No hidden payload extracted. Check image order and stego files."
+            )
         message = decrypt_message(payload, key)
 
         flash("Decoded successfully", "success")
@@ -173,8 +200,22 @@ def download_key(job_id):
     return send_file(
         key_path,
         as_attachment=True,
-        download_name="encryption.key"
+        download_name="encryption.key",
     )
+
+
+@app.route("/download/image/<job_id>/<filename>")
+def download_stego_image(job_id: str, filename: str):
+    job = ENCODE_JOBS.get(job_id)
+    if not job:
+        flash("Session expired", "error")
+        return redirect(url_for("encode"))
+    output_dir = job["output_dir"]
+    target = output_dir / secure_filename(filename)
+    if not target.exists():
+        flash("Requested stego image was not found.", "error")
+        return redirect(url_for("encode"))
+    return send_file(target, as_attachment=True, download_name=target.name)
 
 
 # 📦 DOWNLOAD ZIP (IMAGES)
@@ -187,18 +228,23 @@ def download_zip(job_id):
 
     memory_file = io.BytesIO()
 
-    with zipfile.ZipFile(memory_file, "w") as zf:
+    with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in job.get("stego_paths", []):
-            zf.write(path, arcname=Path(path).name)
+            file_path = Path(path)
+            if file_path.exists():
+                zf.write(file_path, arcname=file_path.name)
 
     memory_file.seek(0)
 
     return send_file(
         memory_file,
         as_attachment=True,
-        download_name="stego_images.zip",
+        download_name=f"stego_images_{job_id[:8]}.zip",
+        mimetype="application/zip",
     )
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", "5000"))
+    debug = os.environ.get("FLASK_DEBUG") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug)

@@ -78,8 +78,10 @@ Open **http://127.0.0.1:5000** in your browser.
 ## Deploy (example: Render)
 
 - **Build:** `pip install -r requirements.txt`
-- **Start:** `gunicorn app:app`
-- Set environment variable **`SECRET_KEY`** to a long random string.
+- **Start:** bind to Render’s port on all interfaces, for example:
+  `gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120 app:app`
+  (the included `Procfile` supplies this **web** command. If your service still uses an old dashboard **Start Command**, it overrides the Procfile—clear or update that field so binding uses `$PORT`.)
+- Set environment variable **`SECRET_KEY`** to a long random string (recommended for production).
 
 Free tiers may sleep when idle; disk for uploaded files is not guaranteed between restarts.
 
