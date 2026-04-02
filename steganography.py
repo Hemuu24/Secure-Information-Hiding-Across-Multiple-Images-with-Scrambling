@@ -13,6 +13,11 @@ from PIL import Image
 from splitter import bytes_per_image, split_payload_by_capacities
 
 
+def order_stego_paths(paths: list[str]) -> list[str]:
+    """Sort by filename so 000_, 001_, … chunk order is preserved after ZIP / file picker."""
+    return sorted(paths, key=lambda p: Path(p).name.lower())
+
+
 def _encode_lsb(image: Image.Image, data: bytes) -> Image.Image:
     total_bits = len(data) * 8
     pixels = image.load()
@@ -95,7 +100,8 @@ def encode_into_images(image_paths: list[str], payload: bytes, output_dir: str) 
 
     for index, (image, image_path) in enumerate(zip(images, image_paths, strict=True)):
         _encode_lsb(image, chunks[index])
-        output_name = f"{Path(image_path).stem}_stego.png"
+        # Prefix index so alphabetical re-upload / ZIP matches embedding order.
+        output_name = f"{index:03d}_{Path(image_path).stem}_stego.png"
         output_path = os.path.join(output_dir, output_name)
         image.save(output_path, format="PNG")
         output_paths.append(output_path)
@@ -106,6 +112,8 @@ def encode_into_images(image_paths: list[str], payload: bytes, output_dir: str) 
 def decode_from_images(image_paths: list[str]) -> bytes:
     if not image_paths:
         return b""
+
+    image_paths = order_stego_paths(list(image_paths))
 
     capacities: list[int] = []
     for image_path in image_paths:

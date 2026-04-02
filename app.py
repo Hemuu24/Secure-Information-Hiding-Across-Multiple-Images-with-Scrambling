@@ -54,15 +54,18 @@ def _is_allowed_image(filename: str) -> bool:
 
 
 def _save_uploaded_images(files, destination: Path):
-    saved_paths = []
-    for idx, file_storage in enumerate(files):
+    """Save uploads with dense 000_, 001_, … prefixes so order stays stable after gaps in multipart."""
+    saved_paths: list[str] = []
+    slot = 0
+    for file_storage in files:
         if not file_storage or not file_storage.filename:
             continue
 
         if not _is_allowed_image(file_storage.filename):
             raise ValueError(f"Unsupported format: {file_storage.filename}")
 
-        safe_name = f"{idx:03d}_{secure_filename(file_storage.filename)}"
+        safe_name = f"{slot:03d}_{secure_filename(file_storage.filename)}"
+        slot += 1
         target = destination / safe_name
         file_storage.save(target)
 
@@ -102,6 +105,7 @@ def encode():
         job_output_dir.mkdir(parents=True, exist_ok=True)
 
         image_paths = _save_uploaded_images(images, job_upload_dir)
+        image_paths.sort(key=lambda p: Path(p).name.lower())
 
         key = generate_key()
         ciphertext = encrypt_message(message, key)
@@ -159,7 +163,12 @@ def decode():
 
     try:
         image_paths = _save_uploaded_images(images, job_dir)
+        image_paths.sort(key=lambda p: Path(p).name.lower())
+
         key = key_file.read()
+        if key.startswith(b"\xef\xbb\xbf"):
+            key = key[3:]
+        key = key.strip()
         if not key:
             raise ValueError("Key file is empty.")
 
